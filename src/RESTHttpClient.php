@@ -1,0 +1,432 @@
+<?php
+
+class RESTHttpClient
+{
+    private $_host = null;
+    private $_port = null;
+    private $_user = null;
+    private $_baseurl = null;
+    private $_cookies = array();
+    private $_pass = null;
+    private $_protocol = null;
+    private $_status = null;
+    private $_content = null;
+
+    const HTTP  = 'http';
+    const HTTPS = 'https';
+
+    private $_connMultiple = false;
+
+    private static $_httpClient = null;
+
+    public static function getHttpClient() {
+      if(is_null(self::$_httpClient)) {
+        self::$_httpClient = new RESTHttpClient();
+      }
+        return self::$_httpClient;
+    }
+
+    public function getStatus()
+    {
+        return $this->_status;
+    }
+
+    public function getContent()
+    {
+        return $this->_content;
+    }
+
+    public function addCookie($cookie)
+    {
+        array_push($this->_cookies, $cookie);
+        return $this->_cookies;
+    }
+    /**
+     * Factory of the class. Lazy connect
+     *
+     * @param string $host
+     * @param integer $port
+     * @param string $user
+     * @param string $pass
+     * @return Http
+     */
+
+
+    static public function connect($baseurl)
+    {
+        self::$_httpClient = new RESTHttpClient($baseurl, false);
+        return self::$_httpClient;
+    }
+
+    /**
+     *
+     * @return Http
+     */
+    static public function multiConnect()
+    {
+        return new self(null, null, null, true);
+    }
+
+    private $_append = array();
+    public function add($http)
+    {
+        $this->_append[] = $http;
+        return $this;
+    }
+
+    private $_silentMode = false;
+    /**
+     *
+     * @param bool $mode
+     * @return Http
+     */
+    public function silentMode($mode=true)
+    {
+        $this->_silentMode = $mode;
+        return $this;
+    }
+
+
+    protected function __construct($baseurl, $connMultiple)
+    {
+        $this->_connMultiple = $connMultiple;
+
+        $this->_baseurl     = $baseurl;
+    }
+
+    public function setCredentials($user, $pass)
+    {
+        $this->_user = $user;
+        $this->_pass = $pass;
+        return $this;
+    }
+
+    const POST   = 'POST';
+    const GET    = 'GET';
+    const DELETE = 'DELETE';
+    const PUT    = 'PUT';
+
+    private $_requests = array();
+
+    /**
+     * @param string $url
+     * @param array $params
+     * @return Http
+     */
+    public function put($url, $params=array())
+    {
+        $this->_requests[] = array(self::PUT, $this->_url($url), $params);
+        return $this;
+    }
+
+    /**
+     * @param string $url
+     * @param array $params
+     * @return Http
+     */
+    public function post($url, $params=array())
+    {
+        $this->_requests[] = array(self::POST, $this->_url($url), $params);
+        return $this;
+    }
+
+    /**
+     * @param string $url
+     * @param array $params
+     * @return Http
+     */
+    public function get($url, $params=array())
+    {
+        $this->_requests[] = array(self::GET, $this->_url($url), $params);
+        return $this;
+    }
+
+    /**
+     * @param string $url
+     * @param array $params
+     * @return Http
+     */
+    public function delete($url, $params=array())
+    {
+        $this->_requests[] = array(self::DELETE, $this->_url($url), $params);
+        return $this;
+    }
+
+    public function _getRequests()
+    {
+        return $this->_requests;
+    }
+
+    /**
+     * PUT request
+     *
+     * @param string $url
+     * @param array $params
+     * @return string
+     */
+    public function doPut($url, $params=array())
+    {
+        return $this->_exec(self::PUT, $this->_url($url), $params);
+    }
+
+    /**
+     * POST request
+     *
+     * @param string $url
+     * @param array $params
+     * @return string
+     */
+    public function doPost($url, $params=array())
+    {
+        return $this->_exec(self::POST, $this->_url($url), $params);
+    }
+
+    /**
+     * GET Request
+     *
+     * @param string $url
+     * @param array $params
+     * @return string
+     */
+    public function doGet($url, $params=array())
+    {
+        return $this->_exec(self::GET, $this->_url($url), $params);
+    }
+
+    /**
+     * DELETE Request
+     *
+     * @param string $url
+     * @param array $params
+     * @return string
+     */
+    public function doDelete($url, $params=array())
+    {
+        return $this->_exec(self::DELETE, $this->_url($url), $params);
+    }
+
+    private $_headers = array();
+    /**
+     * setHeaders
+     *
+     * @param array $headers
+     * @return Http
+     */
+    public function setHeaders($headers)
+    {
+        $this->_headers = $headers;
+        return $this;
+    }
+
+    public function addHeader($header, $value)
+    {
+      $header_string = "{$header}:{$value}";
+      array_push($this->_headers, $header_string);
+
+      return $this->_headers;
+    }
+
+    public function createOrUpdateHeader($header, $value)
+    {
+      $old_headers = $this->_headers;
+      $headers = array();
+      $header_string = "{$header}:{$value}";
+      $pattern = '/^'.$header.'/';
+      $is_defined_header = 0;
+      foreach ($old_headers as $old_header_value){
+          if (preg_match ($pattern, $old_header_value)){
+                  array_push($headers, $header_string);
+                  $is_defined_header = 1;
+          }
+          else{
+              array_push($headers, $old_header_value);
+            }
+      }
+      if ($is_defined_header == 0){
+          array_push($headers, $header_string);
+      }
+      $this->_headers = $headers;
+      return $this->_headers;
+    }
+
+
+    public function getHeaders()
+    {
+        return $this->_headers;
+    }
+
+
+    /**
+     * Builds absolute url
+     *
+     * @param unknown_type $url
+     * @return unknown
+     */
+    private function _url($url=null)
+    {
+        return $url;
+    }
+
+    const HTTP_OK = 200;
+    const HTTP_CREATED = 201;
+    const HTTP_ACEPTED = 202;
+
+    /**
+     * Performing the real request
+     *
+     * @param string $type
+     * @param string $url
+     * @param array $params
+     * @return string
+     */
+    private function _exec($type, $url, $params = array())
+    {
+        $headers = $this->_headers;
+        $s = curl_init();
+        curl_setopt($s, CURLOPT_CAINFO, dirname(__FILE__)."/cacert.pem");
+
+        if(!is_null($this->_user)){
+           curl_setopt($s, CURLOPT_USERPWD, $this->_user.':'.$this->_pass);
+        }
+        switch ($type) {
+            case self::DELETE:
+                curl_setopt($s, CURLOPT_URL, $url . '?' . http_build_query($params));
+                curl_setopt($s, CURLOPT_CUSTOMREQUEST, self::DELETE);
+                break;
+            case self::PUT:
+                curl_setopt($s, CURLOPT_URL, $url);
+                curl_setopt($s, CURLOPT_CUSTOMREQUEST, self::PUT);
+                curl_setopt($s, CURLOPT_POSTFIELDS, $params);
+                break;
+            case self::POST:
+                curl_setopt($s, CURLOPT_URL, $url);
+                curl_setopt($s, CURLOPT_POST, true);
+                curl_setopt($s, CURLOPT_POSTFIELDS, $params);
+                break;
+            case self::GET:
+                $query = $params;
+                if (isset($params) && !empty($params)) {
+                    $query = http_build_query($params);
+                }
+                curl_setopt($s, CURLOPT_URL, $url . '?' . $query);
+                break;
+        }
+
+        $cookies = join('', $this->_cookies);
+
+        curl_setopt($s, CURLOPT_COOKIE, $cookies);
+        curl_setopt($s, CURLOPT_RETURNTRANSFER, true);
+        curl_setopt($s, CURLOPT_HTTPHEADER, $headers);
+        $_out = curl_exec($s);
+        $this->_status = curl_getinfo($s, CURLINFO_HTTP_CODE);
+        curl_close($s);
+        switch ($this->_status) {
+            case self::HTTP_OK:
+            case self::HTTP_CREATED:
+            case self::HTTP_ACEPTED:
+                $out = $_out;
+                break;
+            default:
+                $out = $_out;
+                break;
+                if (!$this->_silentMode) {
+                    throw new HttpException("http error: {$this->_status}", $this->_status);
+                }
+        }
+        $this->_content = $out;
+        return $out;
+    }
+
+    public function run()
+    {
+        if ($this->_connMultiple) {
+            return $this->_runMultiple();
+        } else {
+            return $this->_run();
+        }
+    }
+
+    private function _runMultiple()
+    {
+        $out= null;
+        if (count($this->_append) > 0) {
+            $arr = array();
+            foreach ($this->_append as $_append) {
+                $arr = array_merge($arr, $_append->_getRequests());
+            }
+
+            $this->_requests = $arr;
+            $out = $this->_run();
+        }
+        return $out;
+    }
+
+    private function _run()
+    {
+        $headers = $this->_headers;
+        $curly = $result = array();
+
+        $mh = curl_multi_init();
+        foreach ($this->_requests as $id => $reg) {
+            $curly[$id] = curl_init();
+
+            $type   = $reg[0];
+            $url    = $reg[1];
+            $params = $reg[2];
+
+            if(!is_null($this->_user)){
+               curl_setopt($curly[$id], CURLOPT_USERPWD, $this->_user.':'.$this->_pass);
+            }
+
+            switch ($type) {
+                case self::DELETE:
+                    curl_setopt($curly[$id], CURLOPT_URL, $url . '?' . http_build_query($params));
+                    curl_setopt($curly[$id], CURLOPT_CUSTOMREQUEST, self::DELETE);
+                    break;
+                case self::PUT:
+                    curl_setopt($curly[$id], CURLOPT_URL, $url);
+                    curl_setopt($curly[$id], CURLOPT_CUSTOMREQUEST, self::PUT);
+                    curl_setopt($curly[$id], CURLOPT_POSTFIELDS, $params);
+                    break;
+                case self::POST:
+                    curl_setopt($curly[$id], CURLOPT_URL, $url);
+                    curl_setopt($curly[$id], CURLOPT_POST, true);
+                    curl_setopt($curly[$id], CURLOPT_POSTFIELDS, $params);
+                    break;
+                case self::GET:
+                    curl_setopt($curly[$id], CURLOPT_URL, $url . '?' . http_build_query($params));
+                    break;
+            }
+            curl_setopt($curly[$id], CURLOPT_RETURNTRANSFER, true);
+            curl_setopt($curly[$id], CURLOPT_HTTPHEADER, $headers);
+
+            curl_multi_add_handle($mh, $curly[$id]);
+        }
+
+        $running = null;
+        do {
+            curl_multi_exec($mh, $running);
+            sleep(0.2);
+        } while($running > 0);
+
+        foreach($curly as $id => $c) {
+            $this->_status = curl_getinfo($c, CURLINFO_HTTP_CODE);
+            switch ($this->_status) {
+                case self::HTTP_OK:
+                case self::HTTP_CREATED:
+                case self::HTTP_ACEPTED:
+                    $result[$id] = curl_multi_getcontent($c);
+                    break;
+                default:
+                    if (!$this->_silentMode) {
+                        $result[$id] = new HttpMultipleError($this->_status, $type, $url, $params);
+                    }
+            }
+            curl_multi_remove_handle($mh, $c);
+        }
+
+        curl_multi_close($mh);
+        return $result;
+    }
+}
+
